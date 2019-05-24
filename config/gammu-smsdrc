@@ -1,0 +1,41 @@
+# Configuration file for Gammu SMS Daemon
+
+# Gammu library configuration, see gammurc(5)
+[gammu]
+port = /dev/ttyAMA0
+name = NadHAT_v1
+connection = at115200
+# Debugging
+logformat = textall
+
+# SMSD configuration, see gammu-smsdrc(5)
+[smsd]
+#service = files
+service = sql
+driver = native_mysql
+host = localhost
+database = smsd
+user = root
+password = nadbian
+OutputboxFormat = unicode
+TransmitFormat = unicode
+
+commtimeout = 10
+sendtimeout = 20
+deliveryreport = sms
+phoneid = NadHATv1_ttyAMA0
+MaxRetries = 10
+LoopSleep = 1
+
+#RunOnReceive = /home/pi/incoming_sms
+
+logfile = /var/log/gammu.log
+
+# Increase for debugging information
+debuglevel = 2
+
+# Paths where messages are stored
+inboxpath = /var/spool/gammu/inbox/
+outboxpath = /var/spool/gammu/outbox/
+sentsmspath = /var/spool/gammu/sent/
+errorsmspath = /var/spool/gammu/error/

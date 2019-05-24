@@ -1,0 +1,10 @@
+[Unit]
+Description=NadHAT GSM/GPRS board power on service
+After=mysql.service
+
+[Service]
+ExecStart=/usr/local/sbin/nadstart
+
+[Install]
+WantedBy=multi-user.target
+

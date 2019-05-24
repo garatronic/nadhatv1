@@ -1,0 +1,415 @@
+#!/usr/bin/env python
+#
+# A small program to startup NadHAT board and :
+# - synchronize SIM settings.
+#
+# Author : fpierson@garatronic.fr
+#
+# ver	date 		modification
+# 1.0	2018-04-14	First release
+# 1.1	2018-05-15	AD connect to MYSQL for pin, sample RXD
+# 1.2	2018-05-25	Suspend gammu-smsd, delete all sms options
+# 1.2.1	2018-06-25	Correction syntaxe ligne 286, 412 "smsmd -> smsd"
+
+
+import os
+import serial
+import string
+import subprocess
+import sys
+import time
+import datetime
+import wiringpi
+
+
+VERSION="1.2.1"
+DATE_VERSION="2018-05-25"
+COM_PORT="/dev/ttyAMA0"
+MODEL="SIM800"
+PIN="1234"
+
+DB_PIN="NO"
+DB_HOST="localhost"
+DB_USER="root"
+DB_PASS="nadbian"
+DB_NAME="smsd"
+
+COLD_START="YES"
+SUSPEND_SMSD="NO"
+DEL_ALL_SMS="NO"
+
+# Serial port to SIM800C
+sim800 = serial.Serial()
+
+# NADSTAT allowed values are :
+#   "UNKNOW",
+#   "UNPOWERED",
+#   "POWERED",
+#   "BUSY_BY_OTHER"
+#   "NOSYNC"
+#   "ATSYNC"
+
+NADSTAT="UNKNOW"
+
+
+def nadstart_parse_cmdline():
+#############################
+
+    global FORCE_RESTART, TIMESYNC_FLAG, TIMESET_FLAG
+
+    if "-v" in sys.argv:
+	print sys.argv[0]+" version "+VERSION+" ["+DATE_VERSION+"]"
+	sys.exit(0)
+
+    if "-h" in sys.argv:
+	print "usage: ",sys.argv[0]," [-v] [-h] [timeset|timesync]"
+	print "       [-v] display version of software and exit"
+	print "       [-h] display this help and exit"
+	sys.exit(0)
+
+    return 0
+
+# end of nadstart_parse_cmdline()
+#################################
+
+
+def nadstart_quit_on_error():
+#############################
+
+    print "ERROR : can't go further, exiting on ERROR."
+    sim800.close()
+    sys.exit(1)
+
+# end of nadstart_quit_on_error()
+#################################
+
+
+def make_pwr_pulse():
+#####################
+
+    wiringpi.pinMode(26,1)
+    wiringpi.digitalWrite(26,1)
+    print "INFO : Make pulse on pin 26."
+    time.sleep(1.2)
+    wiringpi.digitalWrite(26,0)
+    wiringpi.pinMode(26,0)
+    print "INFO : Wait 1 seconds for",MODEL,"to boot up."
+    time.sleep(1)
+    return 0
+
+# end of make_pwr_pulse()
+#########################
+
+
+def nadstart_get_serial():
+##########################
+
+    global sim800
+    global NADSTAT
+
+    sim800.port = COM_PORT
+    sim800.baudrate = 115200
+    sim800.sizebyte = serial.EIGHTBITS
+    sim800.parity = serial.PARITY_NONE
+    sim800.stopbits = serial.STOPBITS_ONE
+    sim800.timeout = 0.5
+    sim800.xonxoff = False
+    sim800.rtscts = False
+    sim800.dsrdtr = False
+    sim800.write_timeout = None
+    sim800.inter_byte_timeout = None
+    sim800.exclusive = True
+
+    try:
+        sim800.open()
+        print "INFO : Port",COM_PORT,"opened successfully !"
+        return "NOSYNC"
+
+    except Exception as e:
+        print "ERROR: Unable to open port",COM_PORT,":"
+        print e  # __str__ allows args to printed directly
+        nadstart_quit_on_error()
+
+# end of nadstart_get_serial()
+##############################
+
+def nadstart_get_atsync():
+##########################
+    
+    global sim800
+
+    # Try to synch with 'at' ping command with sim800c (autobaud feature)
+    print "INFO : Try to synch",MODEL,"on",COM_PORT,"."
+    i = 1 
+    while i < 10:
+        sim800.write('at\r')
+	time.sleep(0.5)
+	if "OK" in sim800.readline():
+            break
+	i = i + 1
+
+    if i > 9:
+	print "INFO : Close port",COM_PORT,":"
+        print "ERROR: Unable to synchronize with",MODEL
+        sim800.close()
+        nadstart_quit_on_error()
+
+    else:
+        print "INFO : Synch",COM_PORT,"after",i,"try(s)."
+        print "INFO : Got",MODEL,"prompt ready !"
+        return "ATSYNC"
+
+# end of nadstart_get_atsync()
+##############################
+
+
+def nadstart_level_check():
+###########################
+
+    # i = nb of samples, (default 100)
+    i = 100
+
+    # w = wait time between two samples in second (default 10ms)
+    w = 0.01
+
+    # j = backup value of i, do not change
+    # lo, hi = sum on low and high sampled states, do not change
+    j = i
+    lo = 0
+    hi = 0
+
+    # Sample x times SIM800 RXD to check its state
+    print "INFO : Sample",j,"times",MODEL,"RX every",w,"sec."
+    while i > 0:
+        time.sleep(w)
+        if wiringpi.digitalRead(15) == True:
+            hi = hi + 1
+        else:
+	    lo = lo + 1
+	i = i - 1
+    
+    print "INFO : Nb samples Hi =",hi,"and Lo =",lo,"on TX line."
+
+    if lo == j:
+        print "INFO :",MODEL,"is down"
+        return "UNPOWERED" 
+        
+    elif hi == j:
+        print "INFO :",MODEL,"is up"
+        return "POWERED" 
+        
+    else:
+        print "ERROR : some external activity on ",COM_PORT,", busy/other."
+        nadstart_quit_on_error()
+
+# end of nadstart_level_check():
+################################
+
+
+def nadstart_getup_and_ready():
+###############################
+
+    global NADSTAT
+    global COLD_START
+
+    NADSTAT = nadstart_level_check()
+        
+    if NADSTAT == "UNPOWERED":
+	COLD_START = "DONE"
+        make_pwr_pulse()
+        NADSTAT = nadstart_level_check()
+
+    if NADSTAT == "REBOOT":
+        make_pwr_pulse()
+        NADSTAT = nadstart_level_check()
+
+    if NADSTAT == "POWERED":
+        NADSTAT = nadstart_get_serial()
+
+    if NADSTAT == "NOSYNC":
+        NADSTAT = nadstart_get_atsync()
+
+	### Cold start feature
+	if COLD_START == "YES":
+		print"INFO : shuting down SIM800 for a cold start."
+		sim800.write("at+cpowd=1\n")
+                time.sleep(2)
+	        sim800.close()
+	        print "INFO : Close port",COM_PORT,":"
+		NADSTAT = "REBOOT"
+		COLD_START = "DONE"
+	else:
+		NADSTAT = "ATSYNC"
+    return NADSTAT
+
+# end of nadstart_getup_and_ready()
+###################################
+
+
+def nadstart_retrieve_external_pincode():
+#########################################
+
+    global PIN
+    global DB_PIN
+
+    if DB_PIN == "YES":
+        import MySQLdb as mdb 
+        con1 = mdb.connect(DB_HOST, DB_USER, DB_PASS, DB_NAME)
+
+        with con1:
+            cur8 = con1.cursor(mdb.cursors.DictCursor)
+            cur8.execute("SELECT pin FROM table_pin ")
+            rows = cur8.fetchall()
+            #print rows
+
+        if not rows:
+            print "ERROR: Unable to retrieve pin code in",DB_NAME,"database"
+            sim800.close()
+            nadstart_quit_on_error()
+        else:
+            for row in rows:
+                PIN = str(row["pin"])
+            print "INFO : pincode",PIN,"retrieved in",DB_NAME,"database"
+            return "OK"
+    else:
+        return "OK"
+
+# end of nadstart_retrieve_external_pincode()
+#############################################
+
+
+
+########################################
+# >>>>>>>> PROGRAM START HERE <<<<<<<< #
+
+if SUSPEND_SMSD == "YES":
+	print "info: stop gammu-smsd during nadstart ..."
+	os.popen("sudo systemctl stop gammu-smsd")
+
+nadstart_parse_cmdline()
+
+wiringpi.wiringPiSetupGpio()
+
+nadstart_getup_and_ready()
+if NADSTAT == "REBOOT":
+    nadstart_getup_and_ready() 
+	
+
+# SIM800 SIM unlock to synchronize setup #
+sim800.write('at+cpin?\r')
+sim_answer= ""
+while not "+CPIN:" in sim_answer:
+    sim_answer = sim800.readline()
+    if "ERROR" in sim_answer:
+        print "ERROR : can't query sim pin status (sim absent ?)."
+        nadstart_quit_on_error()
+
+if ": READY" in sim_answer:
+    print "WARN :",MODEL,"access to simcard is already granted."
+
+elif ": SIM PUK" in sim_answer:
+    print "ERROR : PUK code is needed to unlock this SIM."
+    sim800.close()
+    nadstart_quit_on_error()
+
+elif ": SIM PIN" in sim_answer:
+    print "INFO :",MODEL,"simcard is locked, try retrieve code from external."
+    if nadstart_retrieve_external_pincode() <> "OK":
+        print "ERROR : Unable to retrieve pin code from external."
+        sim800.close()
+        nadstart_quit_on_error()
+    else:
+        sim800.write("at+cpin="+PIN+"\n")
+        
+        sim_answer=""
+        while (not "ERROR" in sim_answer) and (not "+CPIN: READY" in sim_answer):
+            sim_answer=sim800.readline()
+        
+        if "ERROR" in sim_answer:
+            print "ERROR : pincode",PIN,"does not grant access."
+            sim800.close()
+            nadstart_quit_on_error()
+        elif "+CPIN: READY" in sim_answer:
+            print "INFO : pincode grant access successfully!"
+
+        while not "SMS Ready" in sim_answer:
+            sim_answer = sim800.readline()
+            if len(sim_answer) > 2:
+                print "INFO :",MODEL,"returned :",sim_answer
+else:
+    print "ERROR : unmanaged return code >",sim_answer
+    sim800.close()
+    nadstart_quit_on_error()
+
+if DEL_ALL_SMS == "YES":
+	sim800.write("at+cmgda=6\n")
+	sim_answer=""
+        while (not "ERROR" in sim_answer) and (not "OK" in sim_answer):
+            sim_answer=sim800.readline()
+        
+        if "ERROR" in sim_answer:
+            print "ERROR : unable to erase all SMS"
+            sim800.close()
+            nadstart_quit_on_error()
+        elif "OK" in sim_answer:
+            print "INFO : all SMS deleted successfully"
+
+sim800.write('at+cclk?\r')
+cclk = ""
+while not "+CCLK:" in cclk:
+	cclk = sim800.readline()
+
+from time import gmtime, strftime
+pcclk = strftime("%y/%m/%d,%H:%M:%S", time.localtime())
+
+print "INFO :",MODEL,"   time is" , cclk[8:25]
+print "INFO : Raspberry time is" , pcclk
+
+sim800_YY = cclk[8:10]
+sim800_MM = cclk[11:13]
+sim800_DD = cclk[14:16]
+sim800_hh = cclk[17:19]
+sim800_mm = cclk[20:22]
+sim800_ss = cclk[23:25]
+
+if "timeset" in sys.argv:
+	sim800.write("AT+CCLK=\""+pcclk+"+01\"\n")
+	i = 0
+	while i < 10:
+		time.sleep(0.1)
+		if "OK" in sim800.readline():
+			break
+		i = i + 1
+
+	sim800.close()
+	print "INFO : Close port",COM_PORT,":"
+
+	if i > 9:
+		print "ERROR: Unable to update "+MODEL+" timekeeper"
+		sys.exit(1)
+	else:
+		print "INFO : "+MODEL+" timekeeper succesfully updated."
+		sys.exit(0)
+
+elif "timesync" in sys.argv:
+	sim800.close()
+	print "INFO : Close port",COM_PORT,":"
+        if os.getuid() == 0:
+		date_str=sim800_MM+sim800_DD+sim800_hh+sim800_mm+sim800_YY+"."+sim800_ss
+		from subprocess import call
+		call(["date", date_str])
+		print "INFO : Raspberry system clock succesfully updated."
+		sys.exit(0)
+	else:
+		print "ERROR : you must be root to update system clock"
+		sys.exit(1)
+
+else:
+	sim800.close()
+	print "INFO : Close port",COM_PORT+"."
+	if SUSPEND_SMSD == "YES":
+		print "INFO : restart gammu-smsd ..."
+		os.popen("sudo systemctl restart gammu-smsd")
+	sys.exit(0)
+
+

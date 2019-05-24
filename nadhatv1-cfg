@@ -1,0 +1,361 @@
+#!/bin/sh
+# https://github.com/garatronic/nadhat-config
+#
+# See LICENSE file for copyright and license details
+
+# Check if executed by root
+if  ! test $(whoami) = 'root'; then
+   echo "Use sudo to execute $0 like this : sudo $0"
+   exit 1
+fi
+
+INTERACTIVE=True
+ASK_TO_REBOOT=0
+BLACKLIST=/etc/modprobe.d/raspi-blacklist.conf
+CONFIG=/boot/config.txt
+CMDLINE=/boot/cmdline.txt
+ROOTDBPWD=nadbian
+
+TEXT_EDITOR=nano
+TEXT_EDITOR=vi
+HEADER_PREFIX="NadHAT v1 Configuration Tool"
+
+
+calc_wt_size() {
+  # NOTE: it's tempting to redirect stderr to /dev/null, so supress error 
+  # output from tput. However in this case, tput detects neither stdout or 
+  # stderr is a tty and so only gives default 80, 24 values
+  WT_HEIGHT=15
+  WT_WIDTH=$(tput cols)
+
+  if [ -z "$WT_WIDTH" ] || [ "$WT_WIDTH" -lt 60 ]; then
+    WT_WIDTH=80
+  fi
+  if [ "$WT_WIDTH" -gt 178 ]; then
+    WT_WIDTH=120
+  fi
+  WT_MENU_HEIGHT=$(($WT_HEIGHT-7))
+}
+
+do_about() {
+  whiptail --msgbox "\
+$HEADER_PREFIX vous permet d'installer et de paramétrer, \
+en toute simplicité, les outils logiciels permettant d'exploiter \
+votre carte NadHAT v1.\n\n\
+N'hésitez pas à signaler vos suggestion ou correctifs souhaités \
+sur l'une de nos plateformes :\n\n\
+https://www.forum.garatronic.fr\n\
+https://www.github.com/garatronic/nadhatv1/ \n\
+" 20 70 1
+}
+
+do_finish() {
+	if [ $ASK_TO_REBOOT -eq 1 ]; then
+		whiptail --yesno "Would you like to reboot now?" 20 60 2
+		if [ $? -eq 0 ]; then # yes
+			sync
+			reboot
+		fi
+	fi
+	exit 0
+}
+
+install_file() {
+	if [ -f $2 ]; then
+		if (whiptail --title "file : $2" --yesno "this file already exist, do you want to overwrite it" 10 60); then
+			cp $1 $2
+		fi
+	else
+		cp $1 $2
+	fi
+}
+
+do_nadstart() {
+	
+	if [ "$1" = "setup" ]; then
+		$TEXT_EDITOR /usr/local/sbin/nadstart
+		
+	elif [ "$1" = "enable_menu" ]; then
+		OPTION=$(whiptail --title "Nadpwr deamon control" --menu "Choose your option" 15 40 2 \
+		"1" "enable nadpwr deamon" \
+		"2" "disable nadpwr deamon" 3>&1 1>&2 2>&3)
+		RET=$?
+		if [ $RET -eq 1 ]; then
+			return 0
+		elif [ $RET -eq 0 ]; then
+			case "$OPTION" in
+				1) whiptail --title "Enable nadpwr.service" --msgbox "`systemctl enable nadpwr.service & systemctl status nadpwr.service`" 10 60 ;;
+				2) whiptail --title "Disable nadpwr.service" --msgbox "`systemctl disable nadpwr.service & systemctl status nadpwr.service`" 10 60 ;;
+				*) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
+			esac || whiptail --msgbox "There was an error running option $OPTION" 20 60 1
+		fi
+
+	elif [ "$1" = "start_menu" ]; then
+		OPTION=$(whiptail --title "Manual power" --menu "Choose your option" 15 60 2 \
+		"1" "Poweron  NadHAT v1" \
+		"2" "Poweroff NadHAT v1" 3>&1 1>&2 2>&3)
+		RET=$?
+		if [ $RET -eq 1 ]; then
+			return 0
+		elif [ $RET -eq 0 ]; then
+			case "$OPTION" in
+				1) whiptail --title "Power-on NadHAT v1" --msgbox "`nadpwr on`" 10 60 ;;
+				2) whiptail --title "Power-off NadHAT v1" --msgbox "`nadpwr off`" 10 60 ;;
+				*) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
+			esac || whiptail --msgbox "There was an error running option $OPTION" 20 60 1
+		fi
+	fi
+}
+
+do_nadstart_menu() {
+	while true; do
+		HEADER_SUFIX=": nadstart deamon"
+		OPTION=$(whiptail --title "$HEADER_PREFIX $HEADER_SUFIX" --menu "options" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT --cancel-button Back --ok-button Select \
+			"N1 edit" "Setup nadstart daemon file (python)" \
+			"N2 enable/disable" "Enable/disable nadstart daemon" \
+			"N3 start/stop" "Manually stop/start NadHAT board" \
+			3>&1 1>&2 2>&3)
+		RET=$?
+		if [ $RET -eq 1 ]; then
+			return 0
+		elif [ $RET -eq 0 ]; then
+			case "$OPTION" in
+				N1\ *) do_nadstart setup ;;
+				N2\ *) do_nadstart enable_menu ;;
+				N3\ *) do_nadstart start_menu ;;
+				*) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
+			esac || whiptail --msgbox "There was an error running option $OPTION" 20 60 1
+		fi
+	done
+}
+
+
+do_gammu_smsd() {
+	if [ "$1" = "manage" ]; then
+		while true; do
+			OPTION=$(whiptail --title "$HEADER_PREFIX $HEADER_SUFIX" --menu "gammu-smsd deamon options" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT --cancel-button Back --ok-button Select \
+			"1" "start gammu-smsd deamon" \
+			"2" "stop gammu_smsd deamon"\
+			"3" "enable gammu-smsd deamon" \
+			"4" "disable gammu_smsd deamon" \
+			"5" "edit gammu-smsdrc config file" \
+			"6" "reset gammu-smsdrc config file to default" 3>&1 1>&2 2>&3)
+			RET=$?
+			if [ $RET -eq 1 ]; then
+				return 0
+			elif [ $RET -eq 0 ]; then
+				case "$OPTION" in
+					1) whiptail --title "Start gammu-smsd deamon" --msgbox "`systemctl start gammu-smsd.service && systemctl status gammu-smsd.service`" 10 60 ;;
+					2) whiptail --title "Stop gammu-smsd deamon" --msgbox "`systemctl stop gammu-smsd.service && systemctl status gammu-smsd.service`" 10 60 ;;
+					3) whiptail --title "Enable gammu-smsd deamon" --msgbox "`systemctl enable gammu-smsd.service && systemctl status gammu-smsd.service`" 10 60 ;;
+					4) whiptail --title "Disable gammu-smsd deamon" --msgbox "`systemctl disable gammu-smsd.service && systemctl status gammu-smsd.service`" 10 60 ;;
+					5) $TEXT_EDITOR /etc/gammu-smsdrc ;; 
+					6) install_file ./config/gammu-smsdrc /etc/gammu-smsdrc ;;
+					*) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
+				esac || whiptail --msgbox "There was an error running option $OPTION" 20 60 1
+			fi
+		done
+	elif [ "$1" = "monitor" ]; then
+			whiptail --title "Gammu-smsd deamon monitor" --msgbox "`gammu-smsd-monitor -n 1 -d 0`" 25 60 ;
+	elif [ "$1" = "sms" ]; then
+		SMS_PHONE=$(whiptail --title "Send a SMS" --inputbox "Enter SMS phone number" 10 60 06 3>&1 1>&2 2>&3)
+		SMS_TEXT=$(whiptail --title "Send a SMS" --inputbox "Enter SMS text" 10 $WT_WIDTH Bonjour 3>&1 1>&2 2>&3)
+		whiptail --title "Send a SMS" --msgbox "`gammu-smsd-inject TEXT $SMS_PHONE -text "$SMS_TEXT"`" 10 60 ;
+	fi
+}
+
+do_gammu_smsd_menu() {
+	while true; do
+		HEADER_SUFIX=": gammu-smsd deamon"
+		OPTION=$(whiptail --title "$HEADER_PREFIX $HEADER_SUFIX" --menu "nadstart deamon options" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT --cancel-button Back --ok-button Select \
+			"G1 manage" "Manage gammu-smsd daemon" \
+			"G2 monitor" "Display gammu-smsd-monitor" \
+			"G3 sms" "Send a SMS" 3>&1 1>&2 2>&3)
+		RET=$?
+		if [ $RET -eq 1 ]; then
+			return 0
+		elif [ $RET -eq 0 ]; then
+			case "$OPTION" in
+				G1\ *) do_gammu_smsd manage ;;
+				G2\ *) do_gammu_smsd monitor ;;
+				G3\ *) do_gammu_smsd sms ;;
+				*) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
+			esac || whiptail --msgbox "There was an error running option $OPTION" 20 60 1
+		fi
+	done
+}
+
+do_mysql_menu() {
+	while true; do
+		HEADER_SUFIX=": smsd database"
+		OPTION=$(whiptail --title "$HEADER_PREFIX $HEADER_SUFIX" --menu "nadstart deamon options" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT --cancel-button Back --ok-button Select \
+			"M1 phonelist in" "Display last 20 incoming phonenumber" \
+			"M2 phonelist out  " "Display last 20 outgoing phonenumber" \
+			"M3 last SMS in" "Display last 3 received SMS" \
+			"M4 last SMS out" "Display last 3 sent SMS" \
+			"M5 flush in" "Delete all received SMS" \
+			"M6 flush out" "Delete all sent SMS" 3>&1 1>&2 2>&3)
+		RET=$?
+		if [ $RET -eq 1 ]; then
+			return 0
+		elif [ $RET -eq 0 ]; then
+			case "$OPTION" in
+				M1\ *) whiptail --title "Incoming SMS phonelist" --msgbox "`mysql --user=root --password=$ROOTDBPWD smsd \
+					-e "SELECT ReceivingDateTime, SenderNumber FROM inbox ORDER BY ReceivingDateTime DESC LIMIT 20"`" 30 $WT_WIDTH ;;
+				M2\ *) whiptail --title "Outgoing SMS phonelist" --msgbox "`mysql --user=root --password=$ROOTDBPWD smsd \
+					-e "SELECT SendingDateTime, DestinationNumber FROM sentitems ORDER BY SendingDateTime DESC LIMIT 20"`" 30 $WT_WIDTH ;;
+				M3\ *) whiptail --title "Last tree received SMS" --msgbox "`mysql --user=root --password=$ROOTDBPWD smsd \
+					-e "SELECT ID, ReceivingDateTime, TextDecoded, SenderNumber FROM inbox ORDER BY ReceivingDateTime DESC LIMIT 3 \G"`" 30 $WT_WIDTH ;;
+				M4\ *) whiptail --title "Last tree sent SMS" --msgbox "`mysql --user=root --password=$ROOTDBPWD smsd \
+					-e "SELECT ID, SendingDateTime, TextDecoded, DestinationNumber FROM sentitems ORDER BY SendingDateTime DESC LIMIT 3 \G"`" 30 $WT_WIDTH ;;
+				M5\ *) ;;
+				M6\ *) ;;
+				*) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
+			esac || whiptail --msgbox "There was an error running option $OPTION" 20 60 1
+		fi
+	done
+}
+
+
+do_install () {
+	
+	# A fresh list of 
+	apt-get --yes  update
+
+	# Setup full featured UART out on gpio header
+	if [ "$1" = "\"ttyAMA0\"" ]; then
+		sed -i $CMDLINE -e "s/console=ttyAMA0,[0-9]\+ //"
+		sed -i $CMDLINE -e "s/console=serial0,[0-9]\+ //"
+
+		if grep -q -E "^enable_uart=0" $CONFIG ; then
+			sed -i $CONFIG -e 's/^enable_uart=0.$/enable_uart=1/g'
+		fi
+
+		if ! grep -q -E "^enable_uart=1" $CONFIG ; then
+			echo "enable_uart=1" >> $CONFIG
+		fi
+		
+		if ! grep -q 'dtoverlay=pi3-miniuart-bt' $CONFIG ; then
+			echo "dtoverlay=pi3-miniuart-bt" >> $CONFIG
+		fi
+		ASK_TO_REBOOT=1 
+	fi
+
+	# Install nadstart poweron deamon
+	if [ "$1" = "\"nadstart\"" ]; then
+		pip install wiringpi
+		cp ./utils/nadpwr /usr/local/sbin/nadpwr
+		cp ./utils/nadstart /usr/local/sbin/nadstart
+		cp ./utils/nadpwr.service /etc/systemd/system/nadpwr.service
+		# En cas d'une nouvelle installation (au pire ça fait pas de mal)
+		if ( whiptail --title "nadpwr.service daemon activation" --yesno \
+			"Do you want to activate nadstart deamon to power-up automatically your NadHAT v1 board at next startup ?" 10 60); then
+			systemctl enable nadpwr.service
+		else
+			systemctl disable nadpwr.service
+		fi
+		ASK_TO_REBOOT=1
+	fi
+
+	# Install gammu-smsd deamon
+	if [ "$1" = "\"gammu\"" ]; then
+		apt-get --yes  install gammu gammu-smsd
+		cp ./config/gammu-smsdrc /etc/.
+		systemctl enable gammu-smsd.service
+	fi
+
+	# Install mysql and/or smsd empty database
+	if [ "$1" = "\"mysql\"" ]; then
+		apt-get --yes  install mysql-common mysql-server
+		mysqladmin -u root password "$ROOTDBPWD"
+		mysql --user=root --password="$ROOTDBPWD" -e "Use mysql; UPDATE user SET plugin='mysql_native_password' WHERE User='root'; FLUSH PRIVILEGES;"
+		service mysql restart
+		mysql --user=root --password="$ROOTDBPWD" -e "CREATE DATABASE smsd"
+		mysql --user=root --password="$ROOTDBPWD" smsd < ./config/smsd.sql
+	fi
+
+	# Install scratch2 extension
+	if [ "$1" = "\"scratch2\"" ]; then
+		python -m pip install mysql-connector
+		# pip install mysql-connector-python
+		apt-get --yes  install scratch2
+		install_file ./scratch2/fr.po /home/pi/.
+		install_file ./scratch2/nadhatv1.html /usr/lib/scratch2/scratch_extensions/.
+		install_file ./scratch2/piNadHATv1Extension.js /usr/lib/scratch2/scratch_extensions/.
+		install_file ./scratch2/piNadHATsmsdbgrabber.py /usr/lib/scratch2/scratch_extensions/.
+		install_file ./scratch2/images/nadhatv1.png /usr/lib/scratch2/medialibrarythumbnails/.
+		if ! grep -q "Pi NadHAT v1" /usr/lib/scratch2/scratch_extensions/extensions.json ; then
+			sed -i /usr/lib/scratch2/scratch_extensions/extensions.json -e '1a\{ "name":"Pi NadHAT v1", "type":"extension", "file":"piNadHATv1Extension\.js", "md5":"nadhatv1\.png", "url":"file:///usr/lib/scratch2/scratch_extensions/nadhatv1\.html", "tags":\["hardware"\]  },' 
+		fi
+	fi
+
+	# Install pppd GPRS internet access
+	if [ "$1" = "\"pppd\"" ]; then
+		whiptail --title "$HEADER_PREFIX : Install $1" --msgbox "This functionnality is under development" 10 60 ;
+	fi
+}
+
+do_install_menu () {
+
+	INST_ttyAMA0=ON
+	INST_nadstart=ON
+	INST_gammu=ON
+	INST_mysql=ON
+	INST_scratch2=ON
+	INST_pppd=OFF
+
+	HEADER_SUFIX=" : install features"
+	CHOICE=$(whiptail --title "$HEADER_PREFIX $HEADER_SUFIX" --checklist \
+	"Quelles fonctionnalités voulez-vous installer ?" 15 $WT_WIDTH 6 \
+	"ttyAMA0" "Setup UART for NadHAT board" $INST_ttyAMA0 \
+	"nadstart" "Install nadstart poweron deamon" $INST_nadstart \
+	"gammu" "Install gammu-smsd deamon" $INST_gammu \
+	"mysql" "Install mysql and/or smsd empty database" $INST_mysql \
+	"scratch2" "Install scratch2 extension" $INST_scratch2 \
+	"pppd" "Install pppd GPRS internet access" $INST_pppd 3>&1 1>&2 2>&3)
+
+	exitstatus=$? 
+	if [ $exitstatus = 0 ]; then
+		for item in $CHOICE ; do
+			do_install $item
+		done
+	fi
+}
+
+#
+# Main loop
+#
+
+
+
+[ -e $CONFIG ] || touch $CONFIG
+calc_wt_size
+while true; do
+	HEADER_SUFIX="(nadhatv1-cfg)"
+	FUN=$(whiptail --title "$HEADER_PREFIX $HEADER_SUFIX" --backtitle "$(cat /proc/device-tree/model)" --menu "Setup Options" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT --cancel-button Finish --ok-button Select \
+	"1 install" "Select and install features" \
+	"2 nadstart" "Manage nadstart poweron deamon" \
+	"3 gammu" "Manage gammu-smsd deamon" \
+	"4 mysql" "Manage mysql smsd database" \
+	"5 about" "Information about `echo $0 | sed '/^.\//d'`" 3>&1 1>&2 2>&3)
+	RET=$?
+	if [ $RET -eq 1 ]; then
+		do_finish
+	elif [ $RET -eq 0 ]; then
+		case "$FUN" in
+			1\ *) do_install_menu ;;
+			2\ *) do_nadstart_menu ;;
+			3\ *) do_gammu_smsd_menu ;;
+			4\ *) do_mysql_menu;;
+			5\ *) do_about ;;
+			*) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
+		esac || whiptail --msgbox "There was an error running option $FUN" 20 60 1
+	else
+		exit 1
+	fi
+	do_finish
+done
+
+
+# mysql --user=root --password=nadbian smsd -e "SELECT ID, ReceivingDateTime, TextDecoded, SenderNumber FROM inbox ORDER BY ID DESC LIMIT 3"
+# mysql --user=root --password=nadbian smsd -e "SELECT ID, SendingDateTime, TextDecoded, DestinationNumber FROM sentitems ORDER BY ID DESC LIMIT 3 \G"
