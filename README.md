@@ -20,7 +20,7 @@ Amusez vous bien.
 Frederic Pierson.
 www.garatronic.fr
 
-ATTENTION : Merci de patienter afin de m'adresser vos commentaires et débat sur le nouveau forum https://www.forum.garatronic.fr, qui devrait ouvrir le 1er juin 2019 :-)
+ATTENTION : Merci de m'adresser vos commentaires et débat sur le nouveau forum https://www.forum.garatronic.fr :-)
 
 
 Welcome to NadHat v1 configuration tool (nadhatv1-cfg) deposit
@@ -45,4 +45,4 @@ Have fun.
 Frederic Pierson.
 www.garatronic.fr
 
-NOTICE : please wait a bit and address your comment and discuss on https://www.forum.garatronic.fr, should open 1st of June 2019 :-)
+NOTICE : please address your comment and discuss on https://www.forum.garatronic.fr forum :-)
