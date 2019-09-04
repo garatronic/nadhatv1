@@ -8,9 +8,10 @@
 # 1.0	2017-11-27	First release
 # 1.1	2017-12-02	DisplayUsage if ./nadhat.sh script is invoqued w/o argument
 # 1.2   2018-05-02	Sensing RXD rather TXD pin
+# 1.3   2019-08-28	Line 70 increase sleep time from 1 to 1.2
 
-VERSION="1.2"
-DATE_VERSION="2018-05-02"
+VERSION="1.3"
+DATE_VERSION="2019-08-28"
 
 # NB samples on BCM RXD input to check if SIM800 is up
 NB_SAMPLES=3
@@ -64,9 +65,9 @@ function Pulse()
 	gpio -g mode $POWER_KEY_GPIO out
 	gpio -g write $POWER_KEY_GPIO 1
 	if [ $QUIET = "none" ]; then
-		echo "Pulse 1s on GPIO$POWER_KEY_GPIO to power $NAD_REQ SIM800C."
+		echo "Pulse 1.2s on GPIO$POWER_KEY_GPIO to power $NAD_REQ SIM800C."
 	fi
-	sleep 1
+	sleep 1.2
 	gpio -g mode $POWER_KEY_GPIO in
 }
 

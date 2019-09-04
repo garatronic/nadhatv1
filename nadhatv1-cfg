@@ -235,8 +235,8 @@ do_install () {
 			echo "enable_uart=1" >> $CONFIG
 		fi
 		
-		if ! grep -q 'dtoverlay=pi3-miniuart-bt' $CONFIG ; then
-			echo "dtoverlay=pi3-miniuart-bt" >> $CONFIG
+		if ! grep -q 'dtoverlay=miniuart-bt' $CONFIG ; then
+			echo "dtoverlay=miniuart-bt" >> $CONFIG
 		fi
 		ASK_TO_REBOOT=1 
 	fi

@@ -10,6 +10,7 @@
 # 1.1	2018-05-15	AD connect to MYSQL for pin, sample RXD
 # 1.2	2018-05-25	Suspend gammu-smsd, delete all sms options
 # 1.2.1	2018-06-25	Correction syntaxe ligne 286, 412 "smsmd -> smsd"
+# 1.3	2019-08-28	Remplacement librairie python wiringpi par appel shell gpio
 
 
 import os
@@ -19,11 +20,12 @@ import subprocess
 import sys
 import time
 import datetime
-import wiringpi
+import commands
+#import wiringpi
 
 
-VERSION="1.2.1"
-DATE_VERSION="2018-05-25"
+VERSION="1.3"
+DATE_VERSION="2019-08-28"
 COM_PORT="/dev/ttyAMA0"
 MODEL="SIM800"
 PIN="1234"
@@ -87,12 +89,15 @@ def nadstart_quit_on_error():
 def make_pwr_pulse():
 #####################
 
-    wiringpi.pinMode(26,1)
-    wiringpi.digitalWrite(26,1)
+    os.system('gpio mode 25 out')
+    os.system('gpio write 25 1')
+    # wiringpi.digitalWrite(26,1)
     print "INFO : Make pulse on pin 26."
     time.sleep(1.2)
-    wiringpi.digitalWrite(26,0)
-    wiringpi.pinMode(26,0)
+    os.system('gpio write 16 1')
+    # wiringpi.digitalWrite(26,0)
+    os.system('gpio mode 16 in')
+    # wiringpi.pinMode(26,0)
     print "INFO : Wait 1 seconds for",MODEL,"to boot up."
     time.sleep(1)
     return 0
@@ -182,7 +187,9 @@ def nadstart_level_check():
     print "INFO : Sample",j,"times",MODEL,"RX every",w,"sec."
     while i > 0:
         time.sleep(w)
-        if wiringpi.digitalRead(15) == True:
+        #if wiringpi.digitalRead(15) == True:
+        status, rxdpin = commands.getstatusoutput("gpio read 16")
+        if rxdpin == "1":
             hi = hi + 1
         else:
 	    lo = lo + 1
@@ -288,7 +295,7 @@ if SUSPEND_SMSD == "YES":
 
 nadstart_parse_cmdline()
 
-wiringpi.wiringPiSetupGpio()
+# wiringpi.wiringPiSetupGpio()
 
 nadstart_getup_and_ready()
 if NADSTAT == "REBOOT":
@@ -411,5 +418,4 @@ else:
 		print "INFO : restart gammu-smsd ..."
 		os.popen("sudo systemctl restart gammu-smsd")
 	sys.exit(0)
-
 
