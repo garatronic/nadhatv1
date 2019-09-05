@@ -11,6 +11,7 @@
 # 1.2	2018-05-25	Suspend gammu-smsd, delete all sms options
 # 1.2.1	2018-06-25	Correction syntaxe ligne 286, 412 "smsmd -> smsd"
 # 1.3	2019-08-28	Remplacement librairie python wiringpi par appel shell gpio
+# 1.3.1 2019-09-04	Correction 
 
 
 import os
@@ -91,15 +92,13 @@ def make_pwr_pulse():
 
     os.system('gpio mode 25 out')
     os.system('gpio write 25 1')
-    # wiringpi.digitalWrite(26,1)
     print "INFO : Make pulse on pin 26."
     time.sleep(1.2)
-    os.system('gpio write 16 1')
-    # wiringpi.digitalWrite(26,0)
-    os.system('gpio mode 16 in')
+    os.system('gpio write 25 0')
+    os.system('gpio mode 25 in')
     # wiringpi.pinMode(26,0)
-    print "INFO : Wait 1 seconds for",MODEL,"to boot up."
-    time.sleep(1)
+    print "INFO : Wait 1.2 seconds for",MODEL,"to boot up."
+    time.sleep(1.2)
     return 0
 
 # end of make_pwr_pulse()
@@ -240,7 +239,7 @@ def nadstart_getup_and_ready():
 	if COLD_START == "YES":
 		print"INFO : shuting down SIM800 for a cold start."
 		sim800.write("at+cpowd=1\n")
-                time.sleep(2)
+                time.sleep(5)
 	        sim800.close()
 	        print "INFO : Close port",COM_PORT,":"
 		NADSTAT = "REBOOT"
@@ -296,6 +295,8 @@ if SUSPEND_SMSD == "YES":
 nadstart_parse_cmdline()
 
 # wiringpi.wiringPiSetupGpio()
+os.system('gpio mode 15 ALT0')
+os.system('gpio mode 16 ALT0')
 
 nadstart_getup_and_ready()
 if NADSTAT == "REBOOT":

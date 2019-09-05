@@ -17,7 +17,7 @@ CMDLINE=/boot/cmdline.txt
 ROOTDBPWD=nadbian
 
 TEXT_EDITOR=nano
-TEXT_EDITOR=vi
+#TEXT_EDITOR=vi
 HEADER_PREFIX="NadHAT v1.1 Configuration Tool"
 
 
@@ -244,7 +244,7 @@ do_install () {
 	# Install nadstart poweron deamon
 	if [ "$1" = "\"nadstart\"" ]; then
 		pip install wiringpi
-		wget https://projects-downloads.drogon.net/wiringpi-latest.deb
+		wget https://project-downloads.drogon.net/wiringpi-latest.deb
 		dpkg -i wiringpi-latest.deb
 		rm wiringpi-latest.deb
 		cp ./utils/nadpwr /usr/local/sbin/nadpwr
